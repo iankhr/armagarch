@@ -6,6 +6,7 @@ Created on Fri Mar  2 20:08:14 2018
 """
 
 from basicFun import hessian_2sided
+from basicFun import getLag
 import numpy as np
 import scipy
 import shutil
@@ -29,10 +30,11 @@ class garch(object):
         self._model = constant
         self._debug = debug
 
-
+    #@profile
     def _meanProcess(self, yt, parameters, PQ = (1,0)):
-        et = []
+        et = np.zeros((len(yt),))
         c = parameters[0]
+        lags = getLag(yt,PQ[0])
         if (PQ[0]>0) or (PQ[1]>0):
             phi = parameters[1:PQ[0]+1]
             theta = parameters[PQ[0]+1:]
@@ -41,16 +43,16 @@ class garch(object):
             ey = c
             if i>0:
                 if PQ[0] > 0:
-                    ytLagOrder = np.min((i, PQ[0]))
-                    ytLag = np.array(yt[i-ytLagOrder:i])[::-1]
-                    ey = ey +np.sum(ytLag*phi[:ytLagOrder])
+                    ytLag = lags[i]
+                    ey = ey +ytLag@phi
                 if PQ[1]>0:
                     etLagOrder = np.min((i, PQ[1]))
                     etLag = np.array(et[i-etLagOrder:i])[::-1]
                     ey = ey + np.sum(etLag*theta[:etLagOrder])
                            
-            et.append(yt[i]-float(ey))        
+            et[i]=float(ey)
         
+        et = yt - et
         return np.asarray(et)
     
     
@@ -95,24 +97,29 @@ class garch(object):
             
         return omega, alpha, gamma, beta
 
-        
+    #@profile    
     def _garchht(self, parameters, et, gtype = 'GARCH', poq = (1,0,1)):
         # it is common to set  ho as unconditional varince
         ht = []
         #print(parameters)
         omega, alpha, gamma, beta = self._garchParUnwrap(parameters, poq)
-        #print(omega, alpha, gamma, beta)
         h0 = np.mean(et**2)
-    
-        for i in range(len(et)):
-            if i <np.max(poq):
-                ht.append(h0)
-            else:
+        ht.append(h0)
+        for i in np.arange(1,len(et),1):
                 etLag = np.array(et[i-poq[0]:i])[::-1]
                 htLag = np.array(ht[i-poq[2]:i])[::-1]
                 if gtype == 'GARCH':
-                    ht.append(omega+np.sum(alpha*etLag**2)
-                    +np.sum(beta*np.asarray(htLag)))
+                    tempRes = omega
+                    try:
+                        tempRes += alpha[:len(etLag)]@(etLag**2)
+                    except:
+                        pass
+                    
+                    try:
+                        tempRes += beta[:len(htLag)]@htLag
+                    except:
+                        pass
+                    ht.append(tempRes)
                 elif gtype=='GJR':
                     etLagGamma = np.array(et[i-poq[1]:i])[::-1]
                     indFun = 1*(etLagGamma<0)
@@ -178,7 +185,7 @@ class garch(object):
                 
             return const
 
-
+    
     def _valsConstructor(self,z,*params):
         data, gtype, poq = params
         return self._garchll(z, data, gtype, poq)
@@ -245,7 +252,7 @@ class garch(object):
                                             args = args, 
                                             f_ieqcons = self._garchConst,
                                             bounds = bounds,
-                                            epsilon=1e-6, acc = 1e-7, iter=400)
+                                            epsilon=1e-6, acc = 1e-7, iter=100)
         
         # Once the model is estimated I can get the standard errors 
         self._vcv = self._getvcv()
@@ -375,7 +382,7 @@ class garch(object):
         print('='*columns)
         print('Covariance estimator: robust')
 
-
+    
     def _tableOutput(self, output, rowNames, reps, tab, ocl):
         columns = shutil.get_terminal_size().columns
         poq = np.cumsum(reps)
