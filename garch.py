@@ -46,9 +46,8 @@ class garch(object):
                     ytLag = lags[i]
                     ey = ey +ytLag@phi
                 if PQ[1]>0:
-                    etLagOrder = np.min((i, PQ[1]))
-                    etLag = np.array(et[i-etLagOrder:i])[::-1]
-                    ey = ey + np.sum(etLag*theta[:etLagOrder])
+                    etLag = np.array(et[i-PQ[1]:i])[::-1]
+                    ey = ey + etLag@theta[:PQ[1]]
                            
             et[i]=float(ey)
         
@@ -140,8 +139,8 @@ class garch(object):
         return np.asarray(ht)
 
        
-    def _garchll(self, parameters, data, gtype, poq, out=False):
-        if self._model == False:
+    def _garchll(self, parameters, data, gtype, poq, out=False, brute = False):
+        if (self._model == False) or (brute==True):
             et = data - np.mean(data)
             ht = self._garchht(parameters,et, gtype, poq)
         else:
@@ -188,7 +187,7 @@ class garch(object):
     
     def _valsConstructor(self,z,*params):
         data, gtype, poq = params
-        return self._garchll(z, data, gtype, poq)
+        return self._garchll(z, data, gtype, poq, brute= True)
     
     
     def _getStartVals(self):
@@ -205,13 +204,13 @@ class garch(object):
             # getting the starting vals for garch
             params = (et, 'GARCH', (self._poq[0], 0, self._poq[2]))
             # bound for omega
-            rranges = [slice(0, 0.1, 0.1)]
+            rranges = [slice(0.001, 0.1, 0.1)]
             # range for p 
             for i in range(self._poq[0]):
-                rranges.append(slice(0.1, 0.3, 0.1))
+                rranges.append(slice(0.1, 0.15, 0.01))
             # range for q
             for i in range(self._poq[2]):
-                rranges.append(slice(0.5, 0.9, 0.1))
+                rranges.append(slice(0.6, 0.8, 0.1))
             
             gridRes = brute(self._valsConstructor, tuple(rranges), \
                             args = params, full_output=True, finish=None)
@@ -631,4 +630,3 @@ class garch(object):
     @property
     def uncvar(self):
         return self._uncondVar
-    
