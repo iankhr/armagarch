@@ -28,5 +28,3 @@ print(str(prop*100)+'%')
 var = np.sqrt(gm.ht)*2.58 # 1%
 prop = np.sum(np.abs(et)>var)/len(var)
 print(str(prop*100)+'%')
-# it means that the model underestimates the variance. if the values are bigger
-# than 5% and 1%. In particular, it manages really bad the tails
