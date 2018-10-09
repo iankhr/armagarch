@@ -15,7 +15,8 @@ from scipy.optimize import brute
 from statsmodels.tsa.arima_model import ARMA
 
 class garch(object):
-    def __init__(self, data, PQ = (0,0), poq = (1,0,1), startingVals = None, constant = True, debug = False):
+    def __init__(self, data, PQ = (0,0), poq = (1,0,1), startingVals = None, \
+                 constant = True, debug = False, printRes = True, fast = False):
         self._data = data
         self._poq = poq
         self._PQ = PQ
@@ -29,6 +30,8 @@ class garch(object):
         self._method = 'MLE'
         self._model = constant
         self._debug = debug
+        self._printRes = printRes
+        self._fast = fast
 
     #@profile
     def _meanProcess(self, yt, parameters, PQ = (1,0)):
@@ -54,7 +57,7 @@ class garch(object):
         et = yt - et
         return np.asarray(et)
     
-    
+    #@profile
     def _normLik(self, data, ht, out=False):
         if np.any(ht<=0):
             nlogLik = np.Inf
@@ -70,7 +73,7 @@ class garch(object):
         else:
             return nlogLik, lls
 
-             
+    #@profile         
     def _garchParUnwrap(self, parameters, poq):
         omega = parameters[0]
         pointer = 1
@@ -138,7 +141,7 @@ class garch(object):
            
         return np.asarray(ht)
 
-       
+    #@profile   
     def _garchll(self, parameters, data, gtype, poq, out=False, brute = False):
         if (self._model == False) or (brute==True):
             et = data - np.mean(data)
@@ -159,7 +162,7 @@ class garch(object):
             nlogLik, lls = self._normLik(et, ht, out)
             return nlogLik, lls
 
-            
+    #@profile        
     def _garchConst(self, parameters, data, gtype, poq, out=None):
         if self._model == False:
             Gparams = parameters
@@ -189,18 +192,23 @@ class garch(object):
         data, gtype, poq = params
         return self._garchll(z, data, gtype, poq, brute= True)
     
-    
+    #@profile
     def _getStartVals(self):
         if self._startVals is None:
             # perform a grid search
-            if (self._PQ[0]>0) | (self._PQ[1]>0):
-                # fitting ARMA model
-                tMdl = ARMA(self._data,self._PQ).fit()
-                startingVals = list(tMdl.params.values)
-                et = tMdl.resid.values
-            else:       
-                startingVals=[np.mean(self._data)]
-                et = self._data-startingVals[0]
+            if self._model == True:
+                if (self._PQ[0]>0) | (self._PQ[1]>0):
+                    # fitting ARMA model
+                    tMdl = ARMA(self._data,self._PQ).fit()
+                    startingVals = list(tMdl.params.values)
+                    et = tMdl.resid.values
+                else:       
+                    startingVals=[np.mean(self._data)]
+                    et = self._data-startingVals[0]
+            else:
+                et = self._data
+                startingVals = []
+                
             # getting the starting vals for garch
             params = (et, 'GARCH', (self._poq[0], 0, self._poq[2]))
             # bound for omega
@@ -226,7 +234,7 @@ class garch(object):
         
         return startingVals
 
-    
+    #@profile
     def fit(self):
         finfo = np.finfo(np.float64)
         # getting starting values
@@ -246,25 +254,34 @@ class garch(object):
         
         args = (np.asarray(self._data), self._gtype, self._poq)    
         
+        if self._printRes ==  True:
+            optimOutput = 1
+        else:
+            optimOutput = 0
+            
         # estimating standard GARCH model
         self._estimates = scipy.optimize.fmin_slsqp(self._garchll, startingVals, 
                                             args = args, 
                                             f_ieqcons = self._garchConst,
                                             bounds = bounds,
-                                            epsilon=1e-6, acc = 1e-7, iter=100)
+                                            epsilon=1e-6, acc = 1e-7, iter=100,\
+                                            iprint = optimOutput)
         
         # Once the model is estimated I can get the standard errors 
-        self._vcv = self._getvcv()
-        self._log_likelihood = -self._garchll(self._estimates,\
-                                                         self._data,\
-                                                         self._gtype,\
-                                                         self._poq)
-        self._getICs()
+        if self._fast == False:
+            self._vcv = self._getvcv()
+            self._log_likelihood = -self._garchll(self._estimates,\
+                                                             self._data,\
+                                                             self._gtype,\
+                                                             self._poq)
+            self._getICs()
+        
         self._rsquared()
         self._stres = self._et/np.sqrt(self._ht)
-        self._printRes()
+        if self._printRes == True:
+            self._printResults()
 
-               
+    #@profile           
     def _rsquared(self):
         if self._model == True:
             Mparams = self._estimates[:1+np.sum(self._PQ)]
@@ -283,13 +300,13 @@ class garch(object):
             self._rsq = np.nan
             self._adjrsq = np.nan
 
-    
+    #@profile
     def _normLf(self):
         l = 1/np.sqrt(2*np.pi*self._ht)*np.exp(-(self._data
                      -np.mean(self._data))**2/(2*self._ht))
         return np.prod(l)
 
-    
+    #@profile
     def _getICs(self):
         k = len(self._estimates)
         n = len(self._data)
@@ -302,7 +319,7 @@ class garch(object):
         self._HQIC = -2*L + (2*k*np.log(np.log(n)))
         self._SIC = -2*L + np.log(n+2*k)
 
-    
+    #@profile
     def _getvcv(self):
         parameters =self._estimates
         data = self._data
@@ -337,8 +354,8 @@ class garch(object):
 
         return vcv
     
-    
-    def _printRes(self):
+    #@profile
+    def _printResults(self):
         params = self._estimates
         vcv = self._vcv
         gtype = self._gtype
@@ -381,7 +398,7 @@ class garch(object):
         print('='*columns)
         print('Covariance estimator: robust')
 
-    
+    #@profile
     def _tableOutput(self, output, rowNames, reps, tab, ocl):
         columns = shutil.get_terminal_size().columns
         poq = np.cumsum(reps)
@@ -424,7 +441,7 @@ class garch(object):
                   +' '*int(ocl-len(se)) + se+tab*' '
                   +' '*int(ocl-len(tstat)) + tstat)
 
-        
+    #@profile    
     def _smallStats(self):
         data = self._data
         gtype = self._gtype
@@ -461,7 +478,7 @@ class garch(object):
         sts.append(['Df Model', str(len(self._estimates))])
         return sts    
         
-    
+    #@profile
     def _cellStr(self, cellName, cellContent, length):
         resLen = int(length - len(cellName) - len(cellContent))
         if cellName !='':
@@ -477,6 +494,101 @@ class garch(object):
         
     def summary(self):
         self._printRes()
+        
+    
+    def applyModel(self, newData, reconstruct = False, y0 = 0, h0=1):
+        if reconstruct == False:
+            if self._model == True:
+                Mparams = self._estimates[:1+np.sum(self._PQ)]
+                Gparams = self._estimates[1+np.sum(self._PQ):]
+                et = self._meanProcess(newData, Mparams, PQ = (1,0))
+                ht = self._garchht(Gparams, et, gtype = self._gtype, poq = self._poq)
+            else:
+                et = newData
+                ht = self._garchht(self._estimates, et, self._gtype, self._poq)
+            return [et, ht]
+        else:
+            # it means that we got innovations and need to return yts and hts
+            if self._model == True:
+                Mparams = self._estimates[:1+np.sum(self._PQ)]
+                Gparams = self._estimates[1+np.sum(self._PQ):]
+                # generate ht from the model
+                ht = np.zeros(np.size(newData))
+                #print(parameters)
+                omega, alpha, gamma, beta = self._garchParUnwrap(Gparams, self._poq)
+                ht[0] = h0
+                et = newData
+                et[0] *= np.sqrt(ht[0])
+                # generating variance        
+                for i in np.arange(1,len(et),1):
+                    etLag = np.array(et[i-self._poq[0]:i])[::-1]
+                    htLag = np.array(ht[i-self._poq[2]:i])[::-1]
+                    if self._gtype == 'GARCH':
+                        tempRes = omega
+                        try:
+                            tempRes += alpha[:len(etLag)]@(etLag**2)
+                        except:
+                            pass
+                        
+                        try:
+                            tempRes += beta[:len(htLag)]@htLag
+                        except:
+                            pass                    
+                    elif self._gtype=='GJR':
+                        etLagGamma = np.array(et[i-self._poq[1]:i])[::-1]
+                        indFun = 1*(etLagGamma<0)
+                        tempRes = omega
+                        try:
+                            tempRes += alpha[:len(etLag)]@(etLag**2)
+                        except:
+                            pass
+                        
+                        try:
+                            tempRes += beta[:len(htLag)]@htLag
+                        except:
+                            pass
+                        
+                        try:
+                            tempRes += indFun*(gamma[:len(etLagGamma)]@etLagGamma)
+                        except:
+                            pass
+                    
+                    if tempRes>=0:
+                        ht[i] = tempRes
+                    else:
+                        ht[i] = h0
+                    
+                    et[i] *= np.sqrt(ht[i])
+                
+                # reconstructing ys
+                eY = np.zeros(np.size(ht))
+                # add constant
+                eY = eY+Mparams[0]
+                if (self._PQ[0]>0) or (self._PQ[1]>0):
+                    phi = Mparams[1:self._PQ[0]+1]
+                    theta = Mparams[self._PQ[0]+1:]
+                # check if MA is there
+                if self._PQ[1]>0:
+                    etLag = getLag(et, self._PQ[1])
+                    maComp = etLag*theta[:self._PQ[1]]
+                    eY = eY + maComp
+                # check if ARMA is there
+                if self._PQ[0]>0:
+                    for i in range(len(eY)):
+                        if i == 0:
+                            if type(phi) == float:
+                                eY[0] = eY[0]+phi*y0
+                            else:
+                                eY[0] = eY[0]+phi[0]*y0
+                        else:
+                            ytLag = np.array(eY[i-self._PQ[0]:i])[::-1]
+                            eY[i] = eY[i] + ytLag@phi
+                
+                return [eY+et, ht]
+            else:
+                yt = newData
+                ht = self._garchht(self._estimates, yt, self._gtype, self._poq)
+            return [yt, ht]
 
     
     def predict(self, step = 1):
