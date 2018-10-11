@@ -37,6 +37,7 @@ PROPERTIES:
 ## Getting Started
 
 The code requires: NumPy, Pandas, SciPy, Shutil and Statsmodels
+
 Copy garch.py and basicFun.py in a directory of your project. Then basic usage is as follows
 
 ```
