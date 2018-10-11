@@ -56,7 +56,7 @@ garchModel.fit()
 
 ## Authors
 
-* **Ian Khrashchevskyi** - *Initial work* - [iankhr](https://github.com/iankhr)
+* **Ian Khrashchevskyi** - [iankhr](https://github.com/iankhr)
 
 ## License
 
