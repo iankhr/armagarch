@@ -1,5 +1,6 @@
 # ARMA-GARCH module
 The code performs joint estimation of ARMA(P,Q)-GJR-GARCH(p,o,q) model. The code creates garch-object:
+
 INPUT:
 -----
 *  data - pandas DataFrame or numpy array. (If your data are stock returns, it is advised to multiply them by 100 for stability reasons)
