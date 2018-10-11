@@ -37,6 +37,9 @@ def _normLik(self, data, mu, ht, out=False):
 
 
 def hessian_2sided(fun,theta, args):
+    """
+    Taken from Kevin's Sheppard "Python for Econometrics"
+    """
     f = fun(theta, *args)
     h = 1e-5*np.abs(theta)
     thetah = theta + h
