@@ -11,6 +11,7 @@ INPUT:
 *  debug - if True, shows additional output necessary for debuging (default: False)
 *  printRes - if False, does not shows the resulted estimations (default:True)
 *  fast - if True, skips estimation of standard errors and only estimates the coefficients (default: False)
+*  extraRegressors - pandas DataFrame or numpy array of additional regressors to add to the model. (default: None)
 
 FUNCTIONS:
 -----------
