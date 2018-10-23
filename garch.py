@@ -16,8 +16,18 @@ from statsmodels.tsa.arima_model import ARMA
 
 class garch(object):
     def __init__(self, data, PQ = (0,0), poq = (1,0,1), startingVals = None, \
-                 constant = True, debug = False, printRes = True, fast = False):
+                 constant = True, debug = False, printRes = True, fast = False,\
+                 extraRegressors = None):
         self._data = data
+        self._extraRegressors = extraRegressors
+        if self._extraRegressors is not None:
+            try:
+                self._numregs = np.shape(extraRegressors)[1]
+            except:
+                self._numregs = 1
+        else:
+            self._numregs = 0
+        
         self._poq = poq
         self._PQ = PQ
         if self._poq[1] == 0:
@@ -40,7 +50,10 @@ class garch(object):
         lags = getLag(yt,PQ[0])
         if (PQ[0]>0) or (PQ[1]>0):
             phi = parameters[1:PQ[0]+1]
-            theta = parameters[PQ[0]+1:]
+            theta = parameters[PQ[0]+1:PQ[0]+PQ[1]+1]
+        
+        if self._numregs>0:
+            beta = parameters[PQ[0]+PQ[1]+1:]
             
         for i in range(len(yt)):
             ey = c
@@ -55,6 +68,13 @@ class garch(object):
             et[i]=float(ey)
         
         et = yt - et
+        if self._extraRegressors is not None:
+            if len(beta)>1:
+                et = et - self._extraRegressors.values@beta
+            else:
+                et = et - self._extraRegressors*beta
+                
+            
         return np.asarray(et)
     
     #@profile
@@ -147,8 +167,8 @@ class garch(object):
             et = data - np.mean(data)
             ht = self._garchht(parameters,et, gtype, poq)
         else:
-            Mparams = parameters[:1+np.sum(self._PQ)]
-            Gparams = parameters[1+np.sum(self._PQ):]
+            Mparams = parameters[:1+np.sum(self._PQ)+self._numregs]
+            Gparams = parameters[1+np.sum(self._PQ)+self._numregs:]
             et = self._meanProcess(data, Mparams, self._PQ)
             ht = self._garchht(Gparams, et, gtype, poq)
          
@@ -170,7 +190,7 @@ class garch(object):
             return np.array([0.999-np.sum(alpha)-np.sum(beta)-0.5*np.sum(gamma)])
         else:
             Mparams = parameters[:1+np.sum(self._PQ)]
-            Gparams = parameters[1+np.sum(self._PQ):]
+            Gparams = parameters[1+np.sum(self._PQ)+self._numregs:]
             omega, alpha, gamma, beta = self._garchParUnwrap(Gparams, poq)
             const = np.array([0.999-np.sum(alpha)-np.sum(beta)-0.5*np.sum(gamma)])
             if np.sum(self._PQ)>0:
@@ -205,6 +225,8 @@ class garch(object):
                 else:       
                     startingVals=[np.mean(self._data)]
                     et = self._data-startingVals[0]
+                if self._numregs>0:
+                    startingVals = startingVals + list(np.zeros((self._numregs,)))
             else:
                 et = self._data
                 startingVals = []
@@ -246,6 +268,10 @@ class garch(object):
             if np.sum(self._PQ)>0:
                 for i in range(np.sum(self._PQ)):
                     bounds.append((-0.999, 0.999))
+            
+            if self._numregs>0:
+                for i in range(self._numregs):
+                    bounds.append((-np.inf, np.inf))
         
         # GARCH bounds
         bounds.append((finfo.eps, 2*np.var(self._data)))#omega
@@ -260,6 +286,7 @@ class garch(object):
             optimOutput = 0
             
         # estimating standard GARCH model
+        #print(startingVals)
         self._estimates = scipy.optimize.fmin_slsqp(self._garchll, startingVals, 
                                             args = args, 
                                             f_ieqcons = self._garchConst,
@@ -284,8 +311,8 @@ class garch(object):
     #@profile           
     def _rsquared(self):
         if self._model == True:
-            Mparams = self._estimates[:1+np.sum(self._PQ)]
-            Gparams = self._estimates[1+np.sum(self._PQ):]
+            Mparams = self._estimates[:1+np.sum(self._PQ)+self._numregs]
+            Gparams = self._estimates[1+np.sum(self._PQ)+self._numregs:]
             omega, alpha, gamma, beta = self._garchParUnwrap(Gparams, self._poq)
             self._uncondVar = omega/(1-np.sum(alpha)-np.sum(beta)-0.5*np.sum(gamma))
             et = self._meanProcess(self._data, Mparams, self._PQ)
@@ -361,8 +388,8 @@ class garch(object):
         gtype = self._gtype
         output = np.vstack((params,np.sqrt(np.diag(vcv)),params/np.sqrt(np.diag(vcv)))).T
         if self._model== True:
-            meanParams = output[:1+np.sum(self._PQ),:]
-            goutput = output[1+np.sum(self._PQ):,:]
+            meanParams = output[:1+np.sum(self._PQ)+self._numregs,:]
+            goutput = output[1+np.sum(self._PQ)+self._numregs:,:]
         else:
             goutput = output
                 
@@ -385,8 +412,14 @@ class garch(object):
         if self._model == True:
             print('Mean Model'.center(columns))
             print('='*columns)
-            self._tableOutput(meanParams, ['Constant','AR','MA'], 
-                              (1, self._PQ[0], self._PQ[1]), tab, ocl)
+            if self._numregs==0:             
+                self._tableOutput(meanParams, ['Constant','AR','MA'], 
+                                  (1, self._PQ[0], self._PQ[1]), tab, ocl)
+            else:
+                self._tableOutput(meanParams, ['Constant','AR','MA','reg'], 
+                                  (1, self._PQ[0], self._PQ[1], self._numregs),\
+                                  tab, ocl)
+                    
         # print the results of mean model here
         
         # printing the volatility model
@@ -415,7 +448,7 @@ class garch(object):
             # creating name
             if i>= poq[pointer]:
                 pointer = pointer+1  
-                if reps[pointer] == 0:
+                while reps[pointer] == 0:
                     pointer = pointer+1
                 
                 if reps[pointer]>1:
@@ -493,7 +526,7 @@ class garch(object):
 
         
     def summary(self):
-        self._printRes()
+        self._printResults()
         
     
     def applyModel(self, newData, reconstruct = False, y0 = 0, h0=1):
@@ -586,6 +619,10 @@ class garch(object):
                 
                 return [eY+et, ht]
             else:
+                """
+                This part is WRONG! You need to generate ht first and then
+                multiply et by sqrt(ht) the result will be yt
+                """
                 yt = newData
                 ht = self._garchht(self._estimates, yt, self._gtype, self._poq)
             return [yt, ht]
