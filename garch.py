@@ -12,12 +12,13 @@ import scipy
 import shutil
 import datetime
 from scipy.optimize import brute
+from scipy.special import gamma
 from statsmodels.tsa.arima_model import ARMA
 
 class garch(object):
     def __init__(self, data, PQ = (0,0), poq = (1,0,1), startingVals = None, \
                  constant = True, debug = False, printRes = True, fast = False,\
-                 extraRegressors = None):
+                 extraRegressors = None, dist = 'Normal'):
         self._data = data
         self._extraRegressors = extraRegressors
         if self._extraRegressors is not None:
@@ -36,7 +37,7 @@ class garch(object):
             self._gtype = 'GJR'
             
         self._startVals = startingVals
-        self._dist = 'Normal'
+        self._dist = dist
         self._method = 'MLE'
         self._model = constant
         self._debug = debug
@@ -79,6 +80,9 @@ class garch(object):
     
     #@profile
     def _normLik(self, data, ht, out=False):
+        """
+        Likelihood function for Normal distribution
+        """
         if np.any(ht<=0):
             nlogLik = np.Inf
         else:
@@ -92,6 +96,56 @@ class garch(object):
             return nlogLik
         else:
             return nlogLik, lls
+
+        
+    def _tLik(self, data, ht, nu, out=False):
+        """
+        Likelihood function for t-Student distribution
+        """
+        if np.any(ht<=0) or nu<=2:
+            nlogLik = np.Inf
+        else:             
+            lls = np.log(gamma((nu+1)/2)/(np.sqrt(np.pi*(nu-2))*gamma(nu/2)))\
+                - 0.5*np.log(ht) - (nu+1)/2*np.log(1+data**2/(ht*(nu-2)))           
+            nlogLik = np.sum(-lls)
+        
+        if np.isnan(nlogLik):
+            nlogLik = np.Inf
+        
+        if out == False:
+            return nlogLik
+        else:
+            return nlogLik, lls
+
+    
+    def _skewtLik(self, data, ht, nu, l, out=False):
+        """
+        Likelihood function for skew-t Distribution
+        """
+        if np.any(ht<=0) or nu<=2 or np.abs(l)>=1:
+            nlogLik = np.Inf
+        else:
+            a = gamma((nu+1)/2)*np.sqrt(nu-2)*(l-1/l)
+            a = a/(np.sqrt(np.pi)*gamma(nu/2))
+            b = np.sqrt((l**2+1/l**2-1)-a**2)
+            tVar = -a/b
+            IndicF = -1*(data/np.sqrt(ht)<tVar)
+            IndicF = 2*IndicF+1
+            IndicF = 2*IndicF
+            lls = np.log(gamma((nu+1)/2)/(np.sqrt(np.pi*(nu-2))*gamma(nu/2)))\
+                + np.log(b) + np.log(2/(l+1/l))\
+                - 0.5*np.log(ht)\
+                - 0.5*(nu+1)*np.log(1+(b*data/np.sqrt(ht)+a)**2/(nu-2)*l**IndicF)  
+            nlogLik = np.sum(-lls)
+        
+        if np.isnan(nlogLik):
+            nlogLik = np.Inf
+        
+        if out == False:
+            return nlogLik
+        else:
+            return nlogLik, lls
+        
 
     #@profile         
     def _garchParUnwrap(self, parameters, poq):
@@ -165,15 +219,44 @@ class garch(object):
     def _garchll(self, parameters, data, gtype, poq, out=False, brute = False):
         if (self._model == False) or (brute==True):
             et = data - np.mean(data)
-            ht = self._garchht(parameters,et, gtype, poq)
+            if self._dist =='Student':
+                if brute == True:
+                    nu=3
+                else:
+                    nu = parameters[-1]
+            elif self._dist == 'skewt':
+                if brute == True:
+                    nu=3
+                    l = 0.5
+                else:
+                    nu = parameters[-2]
+                    l = parameters[-1]
+                    
+            ht = self._garchht(parameters[:-1],et, gtype, poq)
         else:
             Mparams = parameters[:1+np.sum(self._PQ)+self._numregs]
-            Gparams = parameters[1+np.sum(self._PQ)+self._numregs:]
+            if self._dist == 'Student':
+                Gparams = parameters[1+np.sum(self._PQ)+self._numregs:-1]
+                nu = parameters[-1]
+            elif self._dist == 'skewt':
+                nu = parameters[-2]
+                l = parameters[-1]
+                Gparams = parameters[1+np.sum(self._PQ)+self._numregs:-2]
+            else:
+                Gparams = parameters[1+np.sum(self._PQ)+self._numregs:]
+                
             et = self._meanProcess(data, Mparams, self._PQ)
             ht = self._garchht(Gparams, et, gtype, poq)
          
         if out == False:
-            nlogLik = self._normLik(et, ht, out)
+            if self._dist=='Normal':
+                nlogLik = self._normLik(et, ht, out)
+            elif self._dist == 'Student':
+                nlogLik = self._tLik(et, ht, nu, out)
+            elif self._dist == 'skewt':
+                nlogLik = self._skewtLik(et, ht, nu, l, out)
+            else:
+                raise TypeError('The distribution nopt implemented')
             if self._debug == True:
                 print(parameters, nlogLik)
                 
@@ -185,12 +268,29 @@ class garch(object):
     #@profile        
     def _garchConst(self, parameters, data, gtype, poq, out=None):
         if self._model == False:
-            Gparams = parameters
+            if self._dist == 'Student':
+                Gparams = parameters[:-1]
+                nu = parameters[-1]
+            elif self._dist == 'skewt':
+                Gparams = parameters[:-2]
+                nu = parameters[-2]
+                l = parameters[-1]
+            else:
+                Gparams = parameters
+                
             omega, alpha, gamma, beta = self._garchParUnwrap(Gparams, poq)
             return np.array([0.999-np.sum(alpha)-np.sum(beta)-0.5*np.sum(gamma)])
         else:
             Mparams = parameters[:1+np.sum(self._PQ)]
-            Gparams = parameters[1+np.sum(self._PQ)+self._numregs:]
+            if self._dist == 'Student':
+                Gparams = parameters[1+np.sum(self._PQ)+self._numregs:-1]
+                nu = parameters[-1]
+            elif self._dist == 'skewt':
+                Gparams = parameters[1+np.sum(self._PQ)+self._numregs:-2]
+                nu = parameters[-2]
+                l = parameters[-1]
+            else:
+                Gparams = parameters[1+np.sum(self._PQ)+self._numregs:]
             omega, alpha, gamma, beta = self._garchParUnwrap(Gparams, poq)
             const = np.array([0.999-np.sum(alpha)-np.sum(beta)-0.5*np.sum(gamma)])
             if np.sum(self._PQ)>0:
@@ -251,6 +351,11 @@ class garch(object):
                 startingVals = startingVals+list(vals[:1+self._poq[0]])\
                              + list(np.zeros((self._poq[1],)))\
                              + list(vals[1+self._poq[0]:])
+            
+            if self._dist == 'Student':
+                startingVals = startingVals+[3,]
+            elif self._dist == 'skewt':
+                startingVals = startingVals+[3,0.5]
         else:
             startingVals = self._startVals
         
@@ -278,6 +383,14 @@ class garch(object):
         for i in range(np.sum(self._poq)):
             bounds.append((finfo.eps,0.9999))
         
+        # Distribution bounds
+        if self._dist == 'Student':
+            # above 12 degrees of freedom it converges to Normal
+            bounds.append((3,np.inf))
+        elif self._dist == 'skewt':
+            bounds.append((3,np.inf))
+            bounds.append((-0.999,0.999))
+        
         args = (np.asarray(self._data), self._gtype, self._poq)    
         
         if self._printRes ==  True:
@@ -293,7 +406,6 @@ class garch(object):
                                             bounds = bounds,
                                             epsilon=1e-6, acc = 1e-7, iter=100,\
                                             iprint = optimOutput)
-        
         # Once the model is estimated I can get the standard errors 
         if self._fast == False:
             self._vcv = self._getvcv()
@@ -389,7 +501,12 @@ class garch(object):
         output = np.vstack((params,np.sqrt(np.diag(vcv)),params/np.sqrt(np.diag(vcv)))).T
         if self._model== True:
             meanParams = output[:1+np.sum(self._PQ)+self._numregs,:]
-            goutput = output[1+np.sum(self._PQ)+self._numregs:,:]
+            if self._dist == 'Student':
+                goutput = output[1+np.sum(self._PQ)+self._numregs:-1,:]
+            elif self._dist == 'skewt':
+                goutput = output[1+np.sum(self._PQ)+self._numregs:-2,:]
+            else:
+                goutput = output[1+np.sum(self._PQ)+self._numregs:,:]
         else:
             goutput = output
                 
@@ -427,6 +544,15 @@ class garch(object):
         print('='*columns)
         self._tableOutput(goutput, ['omega','alpha','gamma','beta'], 
                           (1, self._poq[0],self._poq[1],self._poq[2]), tab, ocl)
+                
+        if self._dist == 'Student':
+            print('Distribution: Student'.center(columns))
+            print('='*columns)
+            self._tableOutput(np.atleast_2d(output[-1,:]), ['nu', ], (1, ), tab, ocl)
+        elif self._dist == 'skewt':
+            print('Distribution: Student'.center(columns))
+            print('='*columns)
+            self._tableOutput(output[-2:,:], ['nu','lambda'], (1,1), tab, ocl)
         
         print('='*columns)
         print('Covariance estimator: robust')
@@ -443,32 +569,43 @@ class garch(object):
               + ' '*int(ocl-len('t-stat'))+'t-stat'
               )
         print('-'*columns)
-        for i in range(len(output)):
-            item = np.round(output[i], decimals = 3)
-            # creating name
-            if i>= poq[pointer]:
-                pointer = pointer+1  
-                while reps[pointer] == 0:
-                    pointer = pointer+1
+        if np.shape(output)[1]>1:
+            for i in range(len(output)):
+                item = np.round(output[i], decimals = 3)
+                # creating name
+                if i>= poq[pointer]:
+                    pointer = pointer+1  
+                    while reps[pointer] == 0:
+                        pointer = pointer+1
+                    
+                    if reps[pointer]>1:
+                        counter = counter+1
+                    else:
+                        counter = 0
                 
-                if reps[pointer]>1:
+                elif counter >0:
                     counter = counter+1
+                
+                if counter == 0:
+                    rowName = rowNames[pointer]
                 else:
-                    counter = 0
-            
-            elif counter >0:
-                counter = counter+1
-            
-            if counter == 0:
-                rowName = rowNames[pointer]
-            else:
-                rowName = rowNames[pointer]+'['+str(counter)+']'
-            
+                    rowName = rowNames[pointer]+'['+str(counter)+']'
+                
+                tabLenName = ' '*int(ocl-len(rowName))
+                # putting the values
+                est = str(item[0])
+                se = str(item[1])
+                tstat = str(item[2])
+                print(rowName+tabLenName+tab*' '
+                      +' '*int(ocl-len(est)) + est+ tab*' '
+                      +' '*int(ocl-len(se)) + se+tab*' '
+                      +' '*int(ocl-len(tstat)) + tstat)
+        else:
             tabLenName = ' '*int(ocl-len(rowName))
             # putting the values
-            est = str(item[0])
-            se = str(item[1])
-            tstat = str(item[2])
+            est = str(output[0])
+            se = str(output[1])
+            tstat = str(output[2])
             print(rowName+tabLenName+tab*' '
                   +' '*int(ocl-len(est)) + est+ tab*' '
                   +' '*int(ocl-len(se)) + se+tab*' '
