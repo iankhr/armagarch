@@ -12,12 +12,12 @@ like two-sided hessian and so on
 import numpy as np
 
 def getLag(data, lag):
-    yt = data[lag:]
-    Lags = np.zeros((len(yt),lag))
+    # yt = data[lag:]
+    Lags = np.zeros((len(data),lag))
     for i in range(lag):
-        Lags[:,i] = data[i:i-lag]
+        Lags[i+1:,i] = data[i:i-lag]
     
-    return yt, Lags
+    return Lags
 
 
 def _normLik(self, data, mu, ht, out=False):
