@@ -4,7 +4,7 @@ The package provides a flexible framework for modelling time-series data. The ma
 **Full documentation and installation instruction coming soon.**
   
 
-## Example: Evaluating
+## Example: Modelling conditional volatility of the US excess market returns
 
 The code requires: NumPy, Pandas, SciPy, Shutil, Matplotlib, Pandas_datareader and Statsmodels
 
