@@ -5,8 +5,8 @@ Created on Fri Mar  2 20:08:14 2018
 @author: Ian
 """
 
-from basicFun import hessian_2sided
-from basicFun import getLag
+from .basicFun import hessian_2sided
+from .basicFun import getLag
 import numpy as np
 import scipy
 import shutil
@@ -15,7 +15,7 @@ from scipy.optimize import brute
 from scipy.special import gamma
 from statsmodels.tsa.arima_model import ARMA
 
-class garch(object):
+class legacygarch(object):
     def __init__(self, data, PQ = (0,0), poq = (1,0,1), startingVals = None, \
                  constant = True, debug = False, printRes = True, fast = False,\
                  extraRegressors = None, dist = 'Normal'):
