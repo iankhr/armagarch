@@ -21,7 +21,7 @@ ff = ff[0]
 
 # define mean, vol and distribution
 meanMdl = ag.ARMA(order = {'AR':1,'MA':0})
-volMdl = ag.garch(order = {'p':1,'o':1,'q':1})
+volMdl = ag.garch(order = {'p':1,'q':1})
 distMdl = ag.normalDist()
 
 # create a model
