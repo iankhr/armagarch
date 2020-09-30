@@ -54,6 +54,12 @@ cvol = np.sqrt(ht)
 # get standardized residuals
 stres = model.stres
 
+# make a prediction of mean and variance over next 3 days.
+pred = model.predict(nsteps = 3)
+
+# pred is a list of two-arrays with first array being prediction of mean
+# and second array being prediction of variance
+
 ````
 
 
