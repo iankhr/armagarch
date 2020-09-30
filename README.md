@@ -1,7 +1,22 @@
 # armagarch package
 The package provides a flexible framework for modelling time-series data. The main focus of the package is implementation of the ARMA-GARCH type models.
 
-**Full documentation and installation instruction coming soon.**
+**Full documentation is coming soon.**
+
+## Installation
+
+The latest stable version can be installed by using pip
+```
+pip install armagarch
+```
+
+The master branch can be installed with
+
+```
+git clone https://github.com/iankhr/armagarch
+cd armagarch
+python setup.py install
+```
   
 
 ## Example: Modelling conditional volatility of the US excess market returns
