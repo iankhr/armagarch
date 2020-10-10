@@ -308,6 +308,9 @@ class empModel(object):
         k = len(self._params)
         n = len(self._data)
         L = -self._finalLL
+        # degrees of freedom
+        self._mdl_df = k - 1      
+        # AIC
         self._AIC = 2*k - 2*L
         if n/k<40:
             self._AIC = self._AIC + 2*k*(k+1)/(n-k-1)
@@ -316,11 +319,20 @@ class empModel(object):
         self._HQIC = -2*L + (2*k*np.log(np.log(n)))
         self._SIC = -2*L + np.log(n+2*k)
         # estimate adjusted R^2
-        pars = self._mdlRes['pars']
+        # estimate adjusted R^2
         Ey = self._mdlRes['Ey']
-        self._rsq = np.sum((Ey-np.mean(self._data))**2)/np.sum((self._data-np.mean(self._data))**2)
-        self._rsq = self._rsq.values[0]
-        self._adjrsq =1-(1-self._rsq)*(len(self._data)-1)/(len(self._data)-(len(pars[0])-1)-1)
+        et = self._mdlRes['et']
+        Y = Ey + et
+        # estimate r-rquared and adjusted r-squared
+        SSR = np.sum(et**2)
+        SST = np.sum((Y - np.mean(Y))**2)
+        self._rsq = 1 - SSR/SST
+        try:
+            self._rsq = self._rsq.values[0]
+        except:
+            pass
+        self._adjrsq =1-(1-self._rsq)*(len(self._data)-1)/(len(self._data)\
+                                                           -self._mdl_df-1)
     
     #@profile
     def _getvcv(self):
@@ -429,8 +441,8 @@ class empModel(object):
         sts.append(['AIC', str(np.round(self._AIC, decimals=2))])
         sts.append(['BIC', str(np.round(self._BIC, decimals=2))])
         sts.append(['Num obs', str(len(data))])
-        sts.append(['Df Residuals', str(len(data)-len(self._params))])
-        sts.append(['Df Model', str(len(self._params))])
+        sts.append(['Df Residuals', str(len(data)-self._mdl_df)])
+        sts.append(['Df Model', str(self._mdl_df)])
         return sts    
         
     #@profile
