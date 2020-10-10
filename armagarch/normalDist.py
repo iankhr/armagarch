@@ -8,6 +8,7 @@ This class defines normal distribution for ARMA-GARCH models
 """
 from .distModel import DistModel
 import numpy as np
+import pandas as pd
 import scipy.stats as stats
 
 class normalDist(DistModel):
@@ -35,7 +36,10 @@ class normalDist(DistModel):
             
         mu = params['Mean']
         var = params['Var']
-        ells = np.log(2*np.pi) + np.log(var.values) + (data.values-mu)**2/var.values
+        if (type(var) != pd.Series) & (type(var) != pd.DataFrame):
+            ells = np.log(2*np.pi) + np.log(var) + (data.values-mu)**2/var
+        else:
+            ells = np.log(2*np.pi) + np.log(var.values) + (data.values-mu)**2/var.values
         ells = 0.5*ells
         return ells
 
