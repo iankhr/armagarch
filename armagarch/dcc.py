@@ -12,12 +12,12 @@ import pandas as pd
 import numpy as np
 
 
-class dcc(VolModel):
+class dcc(VolModel): #TODO adjust garch dcc model. Think over the structure.
     """
     Works as it should!
     Input:
         data- pandas
-        order - dict
+        order - dict with p and q order to be used for all of the GARCH models together with the flag GARCH or GJR-GARCH
     """
 
     def _etLags(self, et):
@@ -29,7 +29,7 @@ class dcc(VolModel):
             return etlags
 
     def _giveName(self):
-        self._name = 'GARCH'
+        self._name = 'DCC'
         if self._order is None:
             raise ValueError('Order must be specified!')
         else:
@@ -71,6 +71,7 @@ class dcc(VolModel):
 
         # unpack the parameters
         omega = params[0]
+
         # unpack alpha
         if self._order['p'] > 0:
             alpha = params[1:1 + self._order['p']]
@@ -102,7 +103,7 @@ class dcc(VolModel):
 
         ht = pd.DataFrame(ht, columns=[str(data.columns[0]) + 'Vol', ], \
                           index=data.index)
-        # embedding non negativity contraints
+        # embedding non negativity constraints
         if np.any(ht < 0):
             ht = 0
 
@@ -110,6 +111,42 @@ class dcc(VolModel):
             ht = 0
 
         return ht
+
+
+    def _qMat(self, et, params):
+        alpha = params[0]
+        beta = params[1]
+        Qbar = et.cov().values
+        etlag = et.shift(1).dropna().values.tolist()
+        Q = [Qbar, ]
+        Qprev = Qbar
+        for ettemp in etlag:
+            Qprev = np.kron(1 - alpha - beta, Qbar) + np.kron(alpha, \
+                                                              np.matrix(ettemp).T @ np.matrix(ettemp)) \
+                    + np.kron(beta, Qprev)
+            Q.append(Qprev)
+        return Q
+
+    def _getR(self, Qt):
+        Rt = []
+        for Q in Qt:
+            Qstar = np.diag(np.sqrt(np.diag(Q)))
+            Rt.append(np.linalg.inv(Qstar) @ Q @ np.linalg.inv(Qstar))
+        return Rt
+
+
+    def _predR(self, params, et, Qprev):
+        alpha = params[0]
+        beta = params[1]
+        Qbar = et.cov().values
+        ettemp = et.values.tolist()[-1]
+        Q = np.kron(1 - alpha - beta, Qbar) + np.kron(alpha, \
+                                                      np.matrix(ettemp).T @ np.matrix(ettemp)) \
+            + np.kron(beta, Qprev)
+        # get value for the correlation matrix
+        Qstar = np.diag(np.sqrt(np.diag(Q)))
+        R = np.linalg.inv(Qstar) @ Q @ np.linalg.inv(Qstar)
+        return R
 
     def predict(self, nsteps, params=None, data=None, other=None):
         """
@@ -170,19 +207,10 @@ class dcc(VolModel):
 
     # @profile
     def func_constr(self, params):
-        # unpack alpha
-        if self._order['p'] > 0:
-            alpha = params[1:1 + self._order['p']]
-        else:
-            alpha = 0
-
-        # unpack beta
-        if self._order['q'] > 0:
-            beta = params[1 + self._order['p']:]
-        else:
-            beta = 0
-
-        return [0.999 - np.sum(alpha) - np.sum(beta)]
+        # omega must be above zero
+        omega = 0.999 - params[0] - params[1]
+        # alpha and beta must be above zero
+        return [omega, params[0], params[1], ]
 
     def expectedVariance(self, params):
         # unpack the parameters
