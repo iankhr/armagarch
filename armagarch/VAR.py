@@ -85,6 +85,27 @@ class VAR(MeanModel):
                                        10 * np.abs(np.mean(self._data.values)))), ] \
                                     + self._constraints
 
+
+    def estimate(self, data = None, other = None):
+        if data is None:
+            data = self._data.values
+            lags = self._lags
+        else:
+            if self._order['p'] > 0:
+                lags = makeLags(self._data, self._order['p'])
+            data = data.values
+
+        # create X matrix
+        if self._include_constant:
+            X = pd.concat((pd.DataFrame(1, index=lags.index, columns=['constant']), lags), axis=1)
+        else:
+            X = lags
+
+        Y = data.loc[X.index]
+        beta = np.linalg.inv(X.T @ X) @ X.T @ Y.values
+        beta = beta.values.flatten('F')
+        return beta
+
     # @profile
     def condMean(self, params=None, data=None, other=None):
         if data is None:
