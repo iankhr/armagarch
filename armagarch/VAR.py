@@ -14,6 +14,7 @@ import pandas as pd
 import statsmodels.tsa.api as sm
 import numpy as np
 from .errors import InputError
+from .tests import multLjungBox, sampleCrossCorrelation, makeLags
 
 
 #### Drefining different mean models here ####
@@ -22,22 +23,20 @@ class VAR(MeanModel):
     Works as it should!
     Input:
         data - Pandas dataFrame
-        order - dict with AR and MA specified.
+        order - dict with p as in VAR(p)
+        other - dict with include constant and whether restrictions are to be used
     """
 
     def _giveName(self):
-        self._name = 'ARMA'
+        self._name = 'VAR'
         # creating lags matrix
         if self._order is None:
             raise ValueError('Order must be specified')
         else:
             # define AR
             if self._data is not None:
-                if self._order['AR'] > 0:
-                    lags = pd.concat([self._data.shift(i + 1) \
-                                      for i in range(self._order['AR'])], axis=1)
-                    lags.columns = ['Lag' + str(i + 1) for i in range(self._order['AR'])]
-                    self._lags = lags.fillna(0).values
+                if self._order['p'] > 0:
+                    self._lags = makeLags(self._data, self._order['p'])
 
             if self._other is None:
                 self._include_constant = True
@@ -46,12 +45,19 @@ class VAR(MeanModel):
             else:
                 self._include_constant = True
 
-            self._pnum = self._order['AR'] + self._order['MA']
-            self._varnames = ['AR', 'MA']
+            self._pnum = self._data.shape[1]*self._order['p']
+            self._varnames = self._lags.columns
             if self._include_constant:
-                self._pnum = self._pnum + 1
+                self._pnum = self._pnum + self._data.shape[1]
                 self._varnames = ['Constant'] + self._varnames
             self._setConstraints()
+
+
+    def _vec(self, x):
+        return x.flatten('F')
+
+    def _vecinv(self, x):
+        return x.reshape((self._pnum/self._data.shape[1], self._pnum.shape[1]), 'F')
 
     def _getStartingVals(self):
         if self._data is not None:
@@ -73,10 +79,9 @@ class VAR(MeanModel):
             self._constraints = [(-np.inf, np.inf) for i in range(self._pnum)]
         else:
             self._constraints = \
-                [(-0.99999, 0.99999) for i in range(self._order['AR'])] + \
-                [(-0.99999, 0.99999) for i in range(self._order['MA'])]
+                [(-0.99999, 0.99999) for i in range(self._order['p'])]
             if self._include_constant:
-                self._constraints = [((-10 * np.abs(np.mean(self._data.values)), \
+                self._constraints = [((-10 * np.abs(np.mean(self._data.values)),\
                                        10 * np.abs(np.mean(self._data.values)))), ] \
                                     + self._constraints
 
@@ -86,45 +91,27 @@ class VAR(MeanModel):
             data = self._data.values
             lags = self._lags
         else:
-            if self._order['AR'] > 0:
-                lags = pd.concat([data.shift(i + 1) \
-                                  for i in range(self._order['AR'])], axis=1)
-                lags.columns = ['Lag' + str(i + 1) for i in range(self._order['AR'])]
-                lags = lags.fillna(0).values
+            if self._order['p'] > 0:
+                lags = makeLags(self._data, self._order['p'])
             data = data.values
 
         if params is None:
             params = self._params
 
+        # convert params to beta
+        beta = self._vecinv(params)
+
+        # create X matrix
         if self._include_constant:
-            Ey = np.ones((len(data),)) * params[0]
-            startPointer = 1
+            X = pd.concat((pd.DataFrame(1, index = lags.index, columns = ['constant']), lags), axis=1)
         else:
-            Ey = np.zeros((len(data),))
-            startPointer = 0
+            X = lags
 
-        if self._order['AR'] > 0:
-            # We need to calculate AR lags
-            ar = params[startPointer:self._order['AR'] + startPointer]
-            Ey = Ey + lags @ ar
-
-        if self._order['MA'] > 0:
-            ma = params[self._order['AR'] + startPointer:]
-            ylags = np.zeros((self._order['MA']))
-            eylags = np.zeros((self._order['MA']))
-            lagind = np.arange(0, len(ylags))
-            lagind = np.roll(lagind, 1)
-            for t in range(len(data)):
-                etlag = ylags - eylags
-                maIncr = etlag @ ma
-                Ey[t] = Ey[t] + maIncr
-                ylags = ylags[lagind]
-                ylags[0] = data[t]
-                eylags = eylags[lagind]
-                eylags[0] = Ey[t]
+        Ey = X@beta
+        Ey.columns = ['E[{}]'.format(col) for col in data.columns]
         return Ey
 
-    def reconstruct(self, et, params=None, other=None):
+    def reconstruct(self, et, params=None, other=None): # TODO this part needs to be readjusted
         """
         The function gets innovations and generates the process with specified
         model
@@ -174,9 +161,9 @@ class VAR(MeanModel):
         if data is None:
             data = self._data
 
-        return data.subtract(self.condMean(params, data), axis=0)
+        return data.subtract(self.condMean(params, data, other), axis=0)
 
-    def predict(self, nsteps, params=None, data=None, other=None):
+    def predict(self, nsteps, params=None, data=None, other=None): # TODO Make appropriate changes to the prediction
         """
         Makes the preditiction of the mean
         """
@@ -241,23 +228,12 @@ class VAR(MeanModel):
 
     # @profile
     def func_constr(self, params):
+        beta = self._vecinv(params)
         # testing for unit circle
-        constr = []
-        if self._order['AR'] > 0:
-            arparams = params[1:self._order['AR'] + 1]
-            ar = np.r_[1, -arparams]
+        if self._include_constant:
+            stationarityCheck = np.abs(np.linalg.eigvals(beta[1:, :]))
         else:
-            ar = np.r_[1, 0]
-
-        if self._order['MA'] > 0:
-            maparams = params[self._order['AR'] + 1:]
-            ma = np.r_[1, maparams]
-        else:
-            ma = np.r_[1, 0]
-
-        testP = sm.ArmaProcess(ar, ma)
-        testInvertible = testP.isinvertible
-        testStationary = testP.isstationary
-        constr = [(testInvertible * testStationary) * 2 - 1, ]
+            stationarityCheck = np.abs(np.linalg.eigvals(beta))
+        constr = [1-i for i in stationarityCheck]
 
         return constr
