@@ -11,7 +11,7 @@ Full documentation is on the way
 
 from .meanModel import MeanModel
 import pandas as pd
-import statsmodels.tsa.api as sm
+import statsmodels.tsa as sm
 import numpy as np
 from .errors import InputError
 
@@ -59,7 +59,7 @@ class ARMA(MeanModel):
             else:
                 c = 'nc'
             try:
-                model = sm.ARMA(self._data.values, (self._order['AR'],self._order['MA'])).fit(trend = c)
+                model = sm.arima.model.ARIMA(self._data.values, order = (self._order['AR'], 0, self._order['MA'])).fit(trend = c)
                 self._startingValues = model.params
             except ValueError:
                 self._startingValues = None            
