@@ -51,7 +51,7 @@ class regARMA(MeanModel):
             # get starting values from ARMA model
             self._startingValues = self._coreARMA._startingValues
             # add starting values for the regressors from OLS
-            X = np.array([np.ones(len(self._regs)), np.reshape(self._regs.values,(len(self._regs),))]).T
+            X = np.concatenate([np.ones((self._regs.shape[0],1)), self._regs], axis=1)
             Y = self._data.values
             beta = np.linalg.inv(X.T@X)@X.T@Y
             self._startingValues = np.concatenate((self._startingValues,np.reshape(beta[1:],(len(beta[1:]),))))
