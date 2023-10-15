@@ -250,9 +250,16 @@ class empModel(object):
         # apply model first
         mdlres = self.apply(data = data, params = params, other = otherOld)
         # get prediction of the mean
-        mPred = self._mean.predict(nsteps, params = pars[0], data = data, other = other)
+        if self._mean.pnum>0:
+            mPred = self._mean.predict(nsteps, params = pars[0], data = data, other = other)
+        else:
+            mPred = []
+        
         # get prediction for volatility
-        vPred = self._vol.predict(nsteps, params = pars[1], data = mdlres['et'], other = other)
+        if self._vol.pnum>0:
+            vPred = self._vol.predict(nsteps, params = pars[1], data = mdlres['et'], other = other)
+        else:
+            vPred = []
         return [mPred, vPred]
 
     
