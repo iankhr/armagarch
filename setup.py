@@ -12,7 +12,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="armagarch",
-    version="1.0.3",
+    version="1.0.4",
     author="Ian Khrashchevskyi",
     author_email="iankhr@yahoo.com",
     description="Library for flexible mean and volatility modelling",

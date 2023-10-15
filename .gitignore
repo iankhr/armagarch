@@ -49,5 +49,8 @@ coverage.xml
 *.log
 *.pot
 
+# pip
+.pypirc
+
 # Sphinx documentation
 docs/_build/
