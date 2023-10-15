@@ -142,7 +142,7 @@ class empModel(object):
         # setting starting values for optimizer
         if startingVals is None:
             if self._startingVals is None:
-                startingVals = self._startVals()         
+                startingVals = self._startVals()
             else:
                 startingVals = self._startingVals
         

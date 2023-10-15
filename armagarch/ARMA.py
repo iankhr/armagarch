@@ -11,7 +11,7 @@ Full documentation is on the way
 
 from .meanModel import MeanModel
 import pandas as pd
-import statsmodels.tsa as sm
+import statsmodels.tsa as tsa
 import numpy as np
 from .errors import InputError
 
@@ -59,8 +59,12 @@ class ARMA(MeanModel):
             else:
                 c = 'nc'
             try:
-                model = sm.arima.model.ARIMA(self._data.values, order = (self._order['AR'], 0, self._order['MA'])).fit(trend = c)
-                self._startingValues = model.params
+                model = tsa.arima.model.ARIMA(self._data.values, order=(self._order['AR'], 0,
+                                                                          self._order['MA']), trend=c).fit()
+                if len(model.params) > self._pnum:
+                    self._startingValues = model.params[:-1] # remove estimate of variance
+                else:
+                    self._startingValues = model.params
             except ValueError:
                 self._startingValues = None            
         else:
@@ -76,7 +80,7 @@ class ARMA(MeanModel):
                                 [(-0.99999,0.99999) for i in range(self._order['AR'])]+\
                                 [(-0.99999,0.99999) for i in range(self._order['MA'])]
             if self._include_constant:
-                self._constraints = [((-10*np.abs(np.mean(self._data.values)), \
+                self._constraints = [((-10*np.abs(np.mean(self._data.values)),
                                    10*np.abs(np.mean(self._data.values)))),]\
                   + self._constraints
             
@@ -256,7 +260,7 @@ class ARMA(MeanModel):
         else:
             ma = np.r_[1,0]
         
-        testP = sm.ArmaProcess(ar,ma)
+        testP = tsa.arima_process.ArmaProcess(ar, ma)
         testInvertible = testP.isinvertible
         testStationary = testP.isstationary
         constr = [(testInvertible*testStationary)*2-1,]
